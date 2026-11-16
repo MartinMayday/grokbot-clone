@@ -130,20 +130,17 @@ async function run(sbx: Sandbox, cmd: string, opts: { timeoutMs?: number; envs?:
 
 // ---------- in-sandbox desktop setup ----------
 
-const BOOT_APT = [
-  'set -e',
-  'export DEBIAN_FRONTEND=noninteractive',
-  'if ! command -v Xvfb >/dev/null 2>&1 || ! command -v xdotool >/dev/null 2>&1; then',
-  '  apt-get update -qq >/dev/null 2>&1 || true',
-  '  # One big apt-get install trips dpkg in this sandbox; sequential groups are reliable.',
-  '  for pkgs in "xvfb xdotool x11vnc" "imagemagick" "websockify" "openbox" "chromium"; do',
-  '    apt-get install -y -qq $pkgs >/dev/null 2>&1 || true',
-  '  done',
-  '  dpkg --configure -a >/dev/null 2>&1 || true',
-  'fi',
-  'command -v Xvfb >/dev/null && echo X_OK || echo X_MISSING',
-  'command -v chromium >/dev/null 2>&1 || command -v chromium-browser >/dev/null 2>&1 && echo BROWSER_OK || echo BROWSER_MISSING',
-].join('\n');
+/** One big shell command gets terminated by envd in this sandbox; separate
+ *  short commands per apt group are reliable (matches the verified bisect). */
+const BOOT_STEPS = [
+  'export DEBIAN_FRONTEND=noninteractive; apt-get update -qq >/dev/null 2>&1; echo update:$?',
+  'export DEBIAN_FRONTEND=noninteractive; apt-get install -y -qq xvfb xdotool x11vnc >/dev/null 2>&1; echo xstack:$?',
+  'export DEBIAN_FRONTEND=noninteractive; apt-get install -y -qq imagemagick >/dev/null 2>&1; echo imagemagick:$?',
+  'export DEBIAN_FRONTEND=noninteractive; apt-get install -y -qq websockify >/dev/null 2>&1; echo websockify:$?',
+  'export DEBIAN_FRONTEND=noninteractive; apt-get install -y -qq openbox >/dev/null 2>&1; echo openbox:$?',
+  'export DEBIAN_FRONTEND=noninteractive; { apt-get install -y -qq chromium >/dev/null 2>&1 || apt-get install -y -qq chromium-browser >/dev/null 2>&1; }; echo chromium:$?; dpkg --configure -a >/dev/null 2>&1; true',
+  'command -v Xvfb >/dev/null && echo X_OK || echo X_MISSING; { command -v chromium >/dev/null 2>&1 || command -v chromium-browser >/dev/null 2>&1; } && echo BROWSER_OK || echo BROWSER_MISSING',
+];
 
 function startDisplayCmd(display: string, vncPort: number, wsPort: number, password: string) {
   return [
@@ -173,12 +170,17 @@ async function provisionSandbox(rec: ComputerRec): Promise<void> {
   requireE2B();
   const sbx = await Sandbox.create(env.e2bTemplate, { timeoutMs: SANDBOX_LIFETIME_MS });
   try {
-    const boot = await run(sbx, BOOT_APT, { timeoutMs: 300_000 });
-    if (!String(boot.stdout).includes('X_OK')) {
-      throw new OrgoError(500, 'bootstrap_failed', `Could not install a desktop stack in the sandbox (got: ${String(boot.stdout).trim() || boot.stderr})`);
+    let bootOut = '';
+    for (const step of BOOT_STEPS) {
+      const r = await run(sbx, step, { timeoutMs: 240_000 });
+      bootOut += String(r.stdout ?? '');
     }
+    if (!bootOut.includes('X_OK')) {
+      throw new OrgoError(500, 'bootstrap_failed', `Could not install a desktop stack in the sandbox (got: ${bootOut.trim().slice(0, 400)})`);
+    }
+    if (!bootOut.includes('BROWSER_OK')) console.warn('[orgo/e2b] no browser installed in sandbox; browser tools will degrade');
     for (const [screenId, s] of Object.entries(rec.screens)) {
-      await run(sbx, startDisplayCmd(s.display, s.vncPort, s.wsPort, rec.vncPassword), { timeoutMs: 30_000 });
+      await run(sbx, startDisplayCmd(s.display, s.vncPort, s.wsPort, rec.vncPassword), { timeoutMs: 45_000 });
       if (screenId !== 'default') void screenId;
     }
   } catch (e) {
