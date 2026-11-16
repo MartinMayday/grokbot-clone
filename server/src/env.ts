@@ -9,7 +9,7 @@ function req(name: string): string {
  * forks can point XAI_BASE_URL at any OpenAI Chat Completions provider (e.g. Z.AI GLM),
  * in which case agent/chatbridge.ts converts histories and streams on the fly.
  */
-const xaiBaseUrl = process.env.XAI_BASE_URL ?? 'https://api.x.ai/v1';
+const xaiBaseUrl = process.env.ZAI_BASE_URL ?? process.env.XAI_BASE_URL ?? 'https://api.x.ai/v1';
 const xaiChatMode =
   process.env.XAI_CHAT_MODE !== undefined
     ? /^(1|true|yes)$/i.test(process.env.XAI_CHAT_MODE)
@@ -20,7 +20,8 @@ export const env = {
   appUrl: process.env.APP_URL ?? 'http://localhost:5173',
   /** Public URL of this server, used for OAuth callbacks. */
   serverUrl: process.env.SERVER_URL ?? `http://localhost:${process.env.PORT ?? 8787}`,
-  xaiKey: req('XAI_API_KEY'),
+  /** ZAI_API_KEY is the self-hosted spelling; XAI_API_KEY kept for upstream compatibility. */
+  xaiKey: process.env.ZAI_API_KEY ?? req('XAI_API_KEY'),
   xaiModel: process.env.XAI_MODEL ?? 'grok-4.7',
   xaiBaseUrl,
   xaiChatMode,
