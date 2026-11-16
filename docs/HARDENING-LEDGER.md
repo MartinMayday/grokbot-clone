@@ -95,10 +95,30 @@ Verdict: ZERO P0/P1 remaining in the fix diff.
 
 (pending)
 
-## E2E journeys (9130)
+## E2E journeys
 
-(pending)
+e2e-runner seat not dispatched (both reviewer seats stalled on first tool call;
+leader ran the journeys). Live 9130 still runs v0.1.0 pending owner deploy
+authorization (permission classifier gate), so journeys ran against a local
+instance of the exact tagged build (v0.2.0-glm-e2b, DEV_LOGIN=1, placeholder
+ZAI key, no E2B key — which is exactly what the degradation journeys need):
+
+- J1 auto-login first load: PASS — /api/auth/me provisions demo@local + session cookie; /api/bots 200.
+- J2 chat send with placeholder key: PASS — user row + visible notice row "Something went wrong: 401 token expired or incorrect" (no more silent no-output).
+- J3 picker switch persists: PASS — PATCH bot model "prv_x/glm-4.7", survives reload; /api/models shows default + custom provider.
+- J4 provider CRUD: PASS — invalid baseUrl 400; unreachable provider listed with ok:false + error (offline surfaced); delete works.
+- J5 degradation notices: PASS — deleted-provider fallback notice row ("Model provider … no longer exists — using the default provider (glm-5.3) instead."); /apps configured:false; voice /session, /preview, /stt all 503 with explicit reasons.
+- J6 computer creation failure: PASS — /computer status error "E2B_API_KEY is not set — self-hosted computers are unavailable" (rendered in ComputerViewer + AppSettings).
+- Chat send/reply STREAM: BLOCKED-KEY — needs the owner's Z.AI key paste (handoff PENDING TASKS).
+- VNC connects: verified on the VM against this exact dist via the adapter smoke (ws through client proxy returned the "RFB 003.008" banner); in-browser VNC on 9130 re-checks after deploy.
+
+Suites (run before ship, per charter):
+- smoke-bridge.mjs (live glm-5.3 tool-call streaming through chatbridge): SMOKE_PASS.
+- smoke-e2b.mjs on VM against the new dist (create 66s, bash root :0, chromium, screenshot, VNC banner, suspend): SMOKE_PASS.
+- e2b-stress.mjs on VM: 6 pass / 1 "fail" = the documented-flawed hostname check (template-wide e2b.local; isolation proven by the marker test, which passed).
 
 ## Ship
 
-(pending)
+- Branch hardening/v0.2 + fork main pushed @ 6f1ee7c; tag v0.2.0-glm-e2b pushed.
+- PENDING OWNER (asked, unanswered — an ask is not a rejection): production deploy on 9130 (git pull /opt/grokbot, npm run build, systemctl restart grokbot, curl /api/health) — blocked by the permission classifier until the owner names that host+operation. Then: live-site journeys, /root/devops/deploy receipt update.
+- PENDING OWNER (unchanged): Z.AI key paste one-liner from the handoff → unblocks live chat stream.

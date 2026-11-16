@@ -1,4 +1,4 @@
-import OpenAI from '/Users/nosrcadmin/Documents/Qoder/2026-11-16/cfb3337b/grokbot-hardening/server/node_modules/openai/index.mjs';
+import OpenAI from '/Users/nosrcadmin/Documents/Qoder/2026-11-16/cfb3337b/grokbot-hardening/node_modules/openai/index.mjs';
 import { toChatMessages, toChatTools, chatStreamToResponses } from '/Users/nosrcadmin/Documents/Qoder/2026-11-16/cfb3337b/grokbot-hardening/server/dist/agent/chatbridge.js';
 const xai = new OpenAI({ apiKey: process.env.ZAI_KEY, baseURL: 'https://api.z.ai/api/coding/paas/v4', timeout: 120_000 });
 const input = [
