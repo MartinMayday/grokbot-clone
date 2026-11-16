@@ -4,7 +4,20 @@ import { db } from './db.js';
 import { env } from './env.js';
 import type { Toolkit } from './types.js';
 
-export const composio = new Composio({ apiKey: env.composioKey, provider: new OpenAIResponsesProvider() });
+/**
+ * Null-backed stub when COMPOSIO_API_KEY is unset (self-hosted forks): every
+ * method access throws, and callers already degrade gracefully (catalog -> [],
+ * tools -> [], subscriptions warn). Keeps the inferred upstream type.
+ */
+function unconfiguredComposio(): any {
+  const boom = () => {
+    throw new Error('Composio is not configured on this deployment (COMPOSIO_API_KEY unset)');
+  };
+  return new Proxy({} as Composio, { get: boom, apply: boom } as any);
+}
+
+const configured = new Composio({ apiKey: env.composioKey, provider: new OpenAIResponsesProvider() });
+export const composio: typeof configured = env.composioKey ? configured : unconfiguredComposio();
 
 const REST = 'https://backend.composio.dev/api/v3.1';
 async function rest<T = any>(path: string): Promise<T> {
@@ -19,6 +32,7 @@ type CatalogItem = Omit<Toolkit, 'connected'>;
 let catalogCache: { at: number; items: CatalogItem[] } | null = null;
 
 export async function catalog(): Promise<CatalogItem[]> {
+  if (!env.composioKey) return [];
   if (catalogCache && Date.now() - catalogCache.at < 3600_000) return catalogCache.items;
   const items: CatalogItem[] = [];
   let cursor: string | undefined;

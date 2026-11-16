@@ -4,6 +4,17 @@ function req(name: string): string {
   return v;
 }
 
+/**
+ * Dual provider support. Upstream grokbot speaks the xAI Responses API; self-hosted
+ * forks can point XAI_BASE_URL at any OpenAI Chat Completions provider (e.g. Z.AI GLM),
+ * in which case agent/chatbridge.ts converts histories and streams on the fly.
+ */
+const xaiBaseUrl = process.env.XAI_BASE_URL ?? 'https://api.x.ai/v1';
+const xaiChatMode =
+  process.env.XAI_CHAT_MODE !== undefined
+    ? /^(1|true|yes)$/i.test(process.env.XAI_CHAT_MODE)
+    : !xaiBaseUrl.includes('api.x.ai');
+
 export const env = {
   port: Number(process.env.PORT ?? 8787),
   appUrl: process.env.APP_URL ?? 'http://localhost:5173',
@@ -11,8 +22,16 @@ export const env = {
   serverUrl: process.env.SERVER_URL ?? `http://localhost:${process.env.PORT ?? 8787}`,
   xaiKey: req('XAI_API_KEY'),
   xaiModel: process.env.XAI_MODEL ?? 'grok-4.7',
-  composioKey: req('COMPOSIO_API_KEY'),
-  orgoKey: req('ORGO_API_KEY'),
+  xaiBaseUrl,
+  xaiChatMode,
+  /** Optional on self-hosted forks: tool integrations degrade gracefully when unset. */
+  composioKey: process.env.COMPOSIO_API_KEY ?? '',
+  /** Kept for Orgo-cloud deployments; the E2B adapter ignores it. */
+  orgoKey: process.env.ORGO_API_KEY ?? '',
+  /** E2B self-hosted agent compute (replaces Orgo cloud computers). */
+  e2bApiKey: process.env.E2B_API_KEY ?? '',
+  e2bDomain: process.env.E2B_DOMAIN ?? '',
+  e2bTemplate: process.env.E2B_TEMPLATE ?? 'base',
   /** Orgo workspace that holds every user's box. */
   orgoWorkspaceId: process.env.ORGO_WORKSPACE_ID ?? '',
   /** Orgo box size for new users. */

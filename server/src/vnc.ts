@@ -158,9 +158,14 @@ async function relay(client: WebSocket, userId: string, botId: string, mode: 'wa
 
   try {
     const { computerId, screenId } = await screenFor(userId, botId);
-    const { password } = await orgo.vncPassword(computerId);
-    const upUrl = `wss://www.orgo.ai/desktops/${computerId}/ws/websockify?token=${encodeURIComponent(password)}${screenId !== 'default' ? `&screen=${encodeURIComponent(screenId)}` : ''}`;
-    upstream = new WebSocket(upUrl, ['binary']);
+    const vp: any = await orgo.vncPassword(computerId, screenId);
+    const password = vp.password;
+    // Self-hosted (E2B) computers expose websockify behind the client proxy with header routing;
+    // Orgo embeds an auth token in the URL instead.
+    const upUrl: string = vp.wsUrl
+      ?? `wss://www.orgo.ai/desktops/${computerId}/ws/websockify?token=${encodeURIComponent(password)}${screenId !== 'default' ? `&screen=${encodeURIComponent(screenId)}` : ''}`;
+    const wsOpts: any = vp.wsHeaders ? { protocols: ['binary'], headers: vp.wsHeaders } : { protocols: ['binary'] };
+    upstream = new WebSocket(upUrl, wsOpts);
     upstream.on('message', (data: Buffer) => {
       if (!piping) return fromUp.push(Buffer.from(data));
       if (client.readyState === WebSocket.OPEN) client.send(data);

@@ -10,8 +10,9 @@ import { systemPrompt } from './prompt.js';
 import { repairHistory } from './history.js';
 import { maybeCompact, noteUsage } from './memory.js';
 import { activityFor, functionSchemas, humanizeSlug, policyFor, runComposioTool, toolMap, type ToolCtx, type ToolResult } from './tools.js';
+import { chatStreamToResponses, toChatMessages, toChatTools } from './chatbridge.js';
 
-const xai = new OpenAI({ apiKey: env.xaiKey, baseURL: 'https://api.x.ai/v1', timeout: 360_000 });
+const xai = new OpenAI({ apiKey: env.xaiKey, baseURL: env.xaiBaseUrl, timeout: 360_000 });
 
 export type Trigger =
   | { type: 'user'; text: string }
@@ -259,28 +260,51 @@ async function callModel(ctx: ToolCtx, tools: any[], signal: AbortSignal): Promi
   // The model is only called when no approval is pending, so every orphaned call can be repaired.
   const input = [{ role: 'system', content: await systemPrompt(userId, botId) }, ...pruneImages(repairHistory(history))];
 
-  const body: any = {
-    model: env.xaiModel,
-    input,
-    tools,
-    reasoning: { effort: bot.effort ?? 'medium' },
-    store: false,
-    include: ['reasoning.encrypted_content'],
-    prompt_cache_key: `grokbot:${botId}:${bot.generation}`,
-    safety_identifier: sha256(userId).slice(0, 32),
-    stream: true,
-  };
-
   let stream: any;
-  try {
-    stream = await xai.responses.create(body, { signal });
-  } catch (e: any) {
-    // If a Composio tool schema is rejected, retry with only our own tools.
-    if (e?.status === 400 && tools.length > functionSchemas().length + 2) {
-      console.warn('[agent] 400 with composio tools, retrying without:', e?.message);
-      body.tools = [...functionSchemas(), { type: 'web_search' }, { type: 'x_search' }];
+  if (env.xaiChatMode) {
+    // Chat Completions provider (e.g. GLM on Z.AI): bridge history/stream shapes.
+    const chatBody: any = {
+      model: env.xaiModel,
+      messages: toChatMessages(input),
+      stream: true,
+      stream_options: { include_usage: true },
+    };
+    const chatTools = toChatTools(tools);
+    if (chatTools.length) chatBody.tools = chatTools;
+    try {
+      stream = chatStreamToResponses((await xai.chat.completions.create(chatBody, { signal })) as any);
+    } catch (e: any) {
+      // If a Composio tool schema is rejected, retry with only our own tools.
+      if (e?.status === 400 && tools.length > functionSchemas().length + 2) {
+        console.warn('[agent] 400 with composio tools, retrying without:', e?.message);
+        const own = toChatTools(functionSchemas());
+        if (own.length) chatBody.tools = own;
+        else delete chatBody.tools;
+        stream = chatStreamToResponses((await xai.chat.completions.create(chatBody, { signal })) as any);
+      } else throw e;
+    }
+  } else {
+    const body: any = {
+      model: env.xaiModel,
+      input,
+      tools,
+      reasoning: { effort: bot.effort ?? 'medium' },
+      store: false,
+      include: ['reasoning.encrypted_content'],
+      prompt_cache_key: `grokbot:${botId}:${bot.generation}`,
+      safety_identifier: sha256(userId).slice(0, 32),
+      stream: true,
+    };
+    try {
       stream = await xai.responses.create(body, { signal });
-    } else throw e;
+    } catch (e: any) {
+      // If a Composio tool schema is rejected, retry with only our own tools.
+      if (e?.status === 400 && tools.length > functionSchemas().length + 2) {
+        console.warn('[agent] 400 with composio tools, retrying without:', e?.message);
+        body.tools = [...functionSchemas(), { type: 'web_search' }, { type: 'x_search' }];
+        stream = await xai.responses.create(body, { signal });
+      } else throw e;
+    }
   }
 
   let msgSeq: number | null = null;

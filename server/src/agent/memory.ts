@@ -5,6 +5,7 @@ import { env } from '../env.js';
 import { newId } from '../lib/ids.js';
 import { hub } from '../lib/hub.js';
 import { getBotRow, getLive } from '../store.js';
+import { chatOnceText } from './chatbridge.js';
 
 /**
  * Memory over time:
@@ -13,7 +14,7 @@ import { getBotRow, getLive } from '../store.js';
  *  (c) a bounded, relevance-ranked memory section for the system prompt.
  */
 
-const xai = new OpenAI({ apiKey: env.xaiKey, baseURL: 'https://api.x.ai/v1', timeout: 300_000 });
+const xai = new OpenAI({ apiKey: env.xaiKey, baseURL: env.xaiBaseUrl, timeout: 300_000 });
 
 const num = (v: string | undefined, d: number) => (v !== undefined && v !== '' && Number.isFinite(Number(v)) ? Number(v) : d);
 
@@ -153,6 +154,7 @@ export function renderTranscript(items: any[], maxChars = 200_000): string {
 }
 
 async function compactWithXai(old: any[]): Promise<any[]> {
+  if (env.xaiChatMode) throw new Error('chat-completions provider has no /responses/compact');
   const res: any = await xai.post('/responses/compact', { body: { model: env.xaiModel, input: old } });
   const out = (res?.output ?? []) as any[];
   if (!out.length || !out.some((o) => o?.type === 'compaction' || o?.encrypted_content || o?.role)) throw new Error('compact returned no items');
@@ -161,13 +163,18 @@ async function compactWithXai(old: any[]): Promise<any[]> {
 
 async function compactWithSummary(old: any[]): Promise<any[]> {
   const transcript = renderTranscript(old);
-  const res: any = await xai.responses.create({
-    model: env.xaiModel,
-    input: [{ role: 'system', content: SUMMARY_PROMPT }, { role: 'user', content: transcript }],
-    store: false,
-    reasoning: { effort: 'low' },
-  } as any);
-  const text = String(res.output_text ?? '').trim();
+  let text: string;
+  if (env.xaiChatMode) {
+    text = await chatOnceText(xai, env.xaiModel, SUMMARY_PROMPT, transcript);
+  } else {
+    const res: any = await xai.responses.create({
+      model: env.xaiModel,
+      input: [{ role: 'system', content: SUMMARY_PROMPT }, { role: 'user', content: transcript }],
+      store: false,
+      reasoning: { effort: 'low' },
+    } as any);
+    text = String(res.output_text ?? '').trim();
+  }
   if (!text) throw new Error('summary was empty');
   // Earlier xAI compaction items can't be read back as text, so carry them over unchanged.
   const carried = old.filter((it) => it?.type === 'compaction');
@@ -296,18 +303,24 @@ export async function consolidateBot(botId: string, opts: { upTo?: number } = {}
   if (transcript.length > 24_000) transcript = transcript.slice(-24_000);
 
   const existing = (db.prepare('SELECT text FROM memories WHERE bot_id=? ORDER BY created_at DESC LIMIT 200').all(botId) as any[]).map((m) => m.text as string);
-  const res: any = await xai.responses.create({
-    model: env.xaiModel,
-    input: [
-      { role: 'system', content: CONSOLIDATE_PROMPT },
-      { role: 'user', content: `EXISTING MEMORIES:\n${existing.length ? existing.map((t) => `- ${t}`).join('\n') : '(none)'}\n\nRECENT CONVERSATION:\n${transcript}` },
-    ],
-    text: { format: { type: 'json_schema', name: 'memories', schema: SCHEMA, strict: true } },
-    reasoning: { effort: 'low' },
-    store: false,
-  } as any);
   let proposed: string[] = [];
-  try { proposed = (JSON.parse(String(res.output_text ?? '{}')).memories ?? []).map((m: any) => String(m.text ?? '').trim()).filter(Boolean); } catch { /* bad json → nothing */ }
+  try {
+    const raw: string = env.xaiChatMode
+      ? await chatOnceText(xai, env.xaiModel, CONSOLIDATE_PROMPT, `EXISTING MEMORIES:\n${existing.length ? existing.map((t) => `- ${t}`).join('\n') : '(none)'}\n\nRECENT CONVERSATION:\n${transcript}\n\nRespond with JSON only.`)
+      : String(
+          ((await xai.responses.create({
+            model: env.xaiModel,
+            input: [
+              { role: 'system', content: CONSOLIDATE_PROMPT },
+              { role: 'user', content: `EXISTING MEMORIES:\n${existing.length ? existing.map((t) => `- ${t}`).join('\n') : '(none)'}\n\nRECENT CONVERSATION:\n${transcript}` },
+            ],
+            text: { format: { type: 'json_schema', name: 'memories', schema: SCHEMA, strict: true } },
+            reasoning: { effort: 'low' },
+            store: false,
+          } as any)) as any)?.output_text ?? '',
+        );
+    proposed = (JSON.parse(raw || '{}').memories ?? []).map((m: any) => String(m.text ?? '').trim()).filter(Boolean);
+  } catch { /* bad json → nothing */ }
 
   const added: string[] = [];
   let skipped = 0;
