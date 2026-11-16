@@ -50,7 +50,13 @@ function findOrCreateUser(email: string, name?: string, preferId?: string) {
 // ---------- auth ----------
 
 api.get('/auth/me', (c) => {
-  const user = userFromCookieHeader(c.req.header('cookie'));
+  let user = userFromCookieHeader(c.req.header('cookie'));
+  // DEV_LOGIN demo mode: auto-sign-in the first visitor so the login screen never appears.
+  if (!user && env.devLogin) {
+    const { id } = findOrCreateUser('demo@local', 'Local User');
+    createSession(c, id);
+    user = { id, email: 'demo@local', name: 'Local User', avatarUrl: null } as any;
+  }
   return c.json({ user, devLogin: env.devLogin });
 });
 
