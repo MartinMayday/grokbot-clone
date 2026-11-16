@@ -86,8 +86,9 @@ const [RES_W, RES_H] = (() => {
   return m ? [Number(m[1]), Number(m[2])] : [1280, 800];
 })();
 
-/** Sandboxes are killed by the orchestrator after a timeout; keep them long-lived. */
-const SANDBOX_LIFETIME_MS = 6 * 60 * 60 * 1000;
+/** Self-hosted E2B caps sandbox lifetime at 1 h; stay just under and refresh
+ *  the timer on every connect, so actively-used computers never expire. */
+const SANDBOX_LIFETIME_MS = 55 * 60 * 1000;
 
 const shq = (s: string) => `'` + String(s).replace(/'/g, `'\\''`) + `'`;
 
@@ -131,6 +132,10 @@ const BOOT_APT = [
   'export DEBIAN_FRONTEND=noninteractive',
   'if ! command -v Xvfb >/dev/null 2>&1 || ! command -v xdotool >/dev/null 2>&1; then',
   '  apt-get update -qq >/dev/null 2>&1 || true',
+  '  apt-get install -y -qq xvfb x11vnc xdotool imagemagick websockify openbox chromium >/dev/null 2>&1 || true',
+  '  # dpkg can die partway (triggers, races); repair and retry once, then again without chromium.',
+  '  dpkg --configure -a >/dev/null 2>&1 || true',
+  '  apt-get install -f -y -qq >/dev/null 2>&1 || true',
   '  apt-get install -y -qq xvfb x11vnc xdotool imagemagick websockify openbox chromium >/dev/null 2>&1 \\',
   '    || apt-get install -y -qq xvfb x11vnc xdotool imagemagick websockify openbox >/dev/null 2>&1 \\',
   '    || true',

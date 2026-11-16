@@ -5,19 +5,25 @@ import { env } from './env.js';
 import type { Toolkit } from './types.js';
 
 /**
- * Null-backed stub when COMPOSIO_API_KEY is unset (self-hosted forks): every
- * method access throws, and callers already degrade gracefully (catalog -> [],
- * tools -> [], subscriptions warn). Keeps the inferred upstream type.
+ * Lazy client. Constructing Composio throws without a key, so the instance is
+ * only created on first use — and when COMPOSIO_API_KEY is unset (self-hosted
+ * forks) every access throws, which callers already degrade gracefully
+ * (catalog -> [], tools -> [], subscriptions warn).
  */
-function unconfiguredComposio(): any {
-  const boom = () => {
-    throw new Error('Composio is not configured on this deployment (COMPOSIO_API_KEY unset)');
-  };
-  return new Proxy({} as Composio, { get: boom, apply: boom } as any);
+function makeConfigured() {
+  return new Composio({ apiKey: env.composioKey, provider: new OpenAIResponsesProvider() });
 }
+type ComposioClient = ReturnType<typeof makeConfigured>;
 
-const configured = new Composio({ apiKey: env.composioKey, provider: new OpenAIResponsesProvider() });
-export const composio: typeof configured = env.composioKey ? configured : unconfiguredComposio();
+let instance: ComposioClient | null = null;
+export const composio: ComposioClient = new Proxy({} as ComposioClient, {
+  get(_t, prop) {
+    if (!env.composioKey) throw new Error('Composio is not configured on this deployment (COMPOSIO_API_KEY unset)');
+    instance ??= makeConfigured();
+    const v = Reflect.get(instance as any, prop);
+    return typeof v === 'function' ? (v as any).bind(instance) : v;
+  },
+}) as ComposioClient;
 
 const REST = 'https://backend.composio.dev/api/v3.1';
 async function rest<T = any>(path: string): Promise<T> {

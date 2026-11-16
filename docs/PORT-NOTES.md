@@ -51,6 +51,9 @@ The adapter maps the Orgo model onto E2B sandboxes:
   its own x11vnc + websockify port
 - suspend kills the sandbox, start/resume provisions a fresh one under the
   same stable computer id (state in `data/e2b-computers.json`)
+- self-hosted E2B caps sandbox lifetime at 1 h — the adapter sets 55 min and
+  refreshes the timer on every operation, so idle computers expire but
+  actively used ones stay alive
 - VNC reaches the sandbox websockify through the E2B client proxy using
   `E2b-Sandbox-Id`/`E2b-Sandbox-Port` header routing (port-based addressing,
   no wildcard DNS required)
