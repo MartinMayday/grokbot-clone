@@ -308,31 +308,31 @@ export const orgo = {
   click: async (id: string, screen: string | undefined, b: { x: number; y: number; button?: string; double?: boolean }) => {
     const { sbx, rec: r } = await liveSandbox(id);
     const btn = b.button === 'right' ? 3 : b.button === 'middle' ? 2 : 1;
-    await run(sbx, `xdotool mousemove ${Math.round(b.x)} ${Math.round(b.y)} click ${b.double ? '--repeat 2 --delay 150' : ''} ${btn}`, { timeoutMs: 10_000, envs: { DISPLAY: displayFor(r, screen) }, root: false });
+    await run(sbx, `xdotool mousemove ${Math.round(b.x)} ${Math.round(b.y)} click ${b.double ? '--repeat 2 --delay 150' : ''} ${btn}`, { timeoutMs: 10_000, envs: { DISPLAY: displayFor(r, screen) } });
   },
   move: async (id: string, screen: string | undefined, b: { x: number; y: number }) => {
     const { sbx, rec: r } = await liveSandbox(id);
-    await run(sbx, `xdotool mousemove ${Math.round(b.x)} ${Math.round(b.y)}`, { timeoutMs: 10_000, envs: { DISPLAY: displayFor(r, screen) }, root: false });
+    await run(sbx, `xdotool mousemove ${Math.round(b.x)} ${Math.round(b.y)}`, { timeoutMs: 10_000, envs: { DISPLAY: displayFor(r, screen) } });
   },
   drag: async (id: string, screen: string | undefined, b: { start_x: number; start_y: number; end_x: number; end_y: number }) => {
     const { sbx, rec: r } = await liveSandbox(id);
-    await run(sbx, `xdotool mousemove ${Math.round(b.start_x)} ${Math.round(b.start_y)} mousedown 1 mousemove --sync ${Math.round(b.end_x)} ${Math.round(b.end_y)} mouseup 1`, { timeoutMs: 20_000, envs: { DISPLAY: displayFor(r, screen) }, root: false });
+    await run(sbx, `xdotool mousemove ${Math.round(b.start_x)} ${Math.round(b.start_y)} mousedown 1 mousemove --sync ${Math.round(b.end_x)} ${Math.round(b.end_y)} mouseup 1`, { timeoutMs: 20_000, envs: { DISPLAY: displayFor(r, screen) } });
   },
   type: async (id: string, screen: string | undefined, text: string) => {
     const { sbx, rec: r } = await liveSandbox(id);
     for (let i = 0; i < text.length; i += 1200) {
-      await run(sbx, `xdotool type --delay 12 -- ${shq(text.slice(i, i + 1200))}`, { timeoutMs: 60_000, envs: { DISPLAY: displayFor(r, screen) }, root: false });
+      await run(sbx, `xdotool type --delay 12 -- ${shq(text.slice(i, i + 1200))}`, { timeoutMs: 60_000, envs: { DISPLAY: displayFor(r, screen) } });
     }
   },
   key: async (id: string, screen: string | undefined, key: string) => {
     const { sbx, rec: r } = await liveSandbox(id);
-    await run(sbx, `xdotool key ${shq(key)}`, { timeoutMs: 10_000, envs: { DISPLAY: displayFor(r, screen) }, root: false });
+    await run(sbx, `xdotool key ${shq(key)}`, { timeoutMs: 10_000, envs: { DISPLAY: displayFor(r, screen) } });
   },
   scroll: async (id: string, screen: string | undefined, b: { x: number; y: number; direction: 'up' | 'down'; amount: number }) => {
     const { sbx, rec: r } = await liveSandbox(id);
     const wheel = b.direction === 'up' ? 4 : 5;
     const amt = Math.max(1, Math.min(10, Math.round(b.amount ?? 3)));
-    await run(sbx, `xdotool mousemove ${Math.round(b.x)} ${Math.round(b.y)} click --repeat ${amt} ${wheel}`, { timeoutMs: 10_000, envs: { DISPLAY: displayFor(r, screen) }, root: false });
+    await run(sbx, `xdotool mousemove ${Math.round(b.x)} ${Math.round(b.y)} click --repeat ${amt} ${wheel}`, { timeoutMs: 10_000, envs: { DISPLAY: displayFor(r, screen) } });
   },
 
   bash: async (id: string, screen: string | undefined, command: string, timeout = 120) => {
