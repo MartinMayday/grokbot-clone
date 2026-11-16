@@ -118,8 +118,11 @@ async function liveSandbox(id: string): Promise<{ sbx: Sandbox; rec: ComputerRec
 }
 
 async function run(sbx: Sandbox, cmd: string, opts: { timeoutMs?: number; envs?: Record<string, string>; root?: boolean } = {}) {
+  const timeoutMs = opts.timeoutMs ?? 30_000;
   return sbx.commands.run(cmd, {
-    timeoutMs: opts.timeoutMs ?? 30_000,
+    timeoutMs,
+    // The SDK caps the whole request at 60s by default; long commands need it raised too.
+    requestTimeoutMs: timeoutMs + 15_000,
     envs: opts.envs,
     ...(opts.root === false ? {} : { user: 'root' as const }),
   });
