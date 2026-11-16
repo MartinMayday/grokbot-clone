@@ -10,6 +10,7 @@ import { newId } from './lib/ids.js';
 import type { AuthVars } from './lib/auth.js';
 import { appendRow, emitBot, getBotRow, getLive, listRoutines, listTasks, updateRow } from './store.js';
 import { enqueue } from './agent/loop.js';
+import { chatOnceText } from './agent/chatbridge.js';
 import { computerState } from './computer.js';
 import type { ActivityKind, EventBody, MessageBody, RowBody, VoiceCallRecord, VoiceOption } from './types.js';
 
@@ -240,6 +241,9 @@ voiceApi.post('/session', async (c) => {
   const { botId } = await c.req.json<{ botId: string }>().catch(() => ({ botId: '' }));
   const bot = ownBot(user.id, botId);
   if (!bot) return c.json({ error: 'not found' }, 404);
+  if (env.xaiChatMode) {
+    return c.json({ error: 'Voice calls are unavailable on this deployment: they need an xAI (Grok) realtime voice key, and the default model provider is not xAI.' }, 503);
+  }
   const s = settingsOf(bot);
 
   const r = await fetch(`${XAI}/realtime/client_secrets`, {
@@ -355,21 +359,26 @@ voiceApi.post('/tool', async (c) => {
   }
 });
 
-const xai = new OpenAI({ apiKey: env.xaiKey, baseURL: XAI, timeout: 45_000 });
+// Call summaries go through the configured default provider: responses API on
+// xAI deployments, the chat bridge on Chat Completions providers (e.g. GLM).
+const xai = new OpenAI({ apiKey: env.xaiKey, baseURL: env.xaiBaseUrl, timeout: 45_000 });
 
 async function summarizeCall(botName: string, transcript: { role: string; text: string }[], tasks: string[]): Promise<string | null> {
   if (!transcript.length && !tasks.length) return null;
   const lines = transcript.map((t) => `${t.role === 'user' ? 'User' : botName}: ${t.text}`).join('\n').slice(-12_000);
-  const res: any = await xai.responses.create({
-    model: env.xaiModel,
-    reasoning: { effort: 'low' },
-    store: false,
-    input: [
-      { role: 'system', content: `Summarise this voice call between the user and ${botName} in one short sentence (max 25 words), past tense, third person ("Talked about…", "Asked ${botName} to…"). No preamble.` },
-      { role: 'user', content: `${lines || '(no transcript)'}${tasks.length ? `\n\nWork handed off during the call:\n${tasks.map((t) => `- ${t}`).join('\n')}` : ''}` },
-    ],
-  } as any);
-  const text = String(res.output_text ?? '').trim();
+  const sys = `Summarise this voice call between the user and ${botName} in one short sentence (max 25 words), past tense, third person ("Talked about…", "Asked ${botName} to…"). No preamble.`;
+  const user = `${lines || '(no transcript)'}${tasks.length ? `\n\nWork handed off during the call:\n${tasks.map((t) => `- ${t}`).join('\n')}` : ''}`;
+  const text = env.xaiChatMode
+    ? await chatOnceText(xai, env.xaiModel, sys, user)
+    : String((await xai.responses.create({
+        model: env.xaiModel,
+        reasoning: { effort: 'low' },
+        store: false,
+        input: [
+          { role: 'system', content: sys },
+          { role: 'user', content: user },
+        ],
+      } as any) as any).output_text ?? '').trim();
   return text ? clip(text.replace(/\s+/g, ' '), 240) : null;
 }
 
@@ -415,6 +424,9 @@ voiceApi.post('/preview', async (c) => {
   const p = await c.req.json<{ botId?: string; voice?: string; speed?: number; language?: string; text?: string; codec?: 'mp3' | 'pcm' }>().catch(() => ({} as any));
   const bot = ownBot(user.id, p.botId);
   const s = bot ? settingsOf(bot) : { voice: 'luna', speed: 1, language: 'auto' };
+  if (env.xaiChatMode) {
+    return c.json({ error: 'Voice preview is unavailable on this deployment: text-to-speech needs an xAI (Grok) voice key, and the default model provider is not xAI.' }, 503);
+  }
   const voice = String(p.voice || s.voice).slice(0, 80);
   const language = p.language && langName(p.language) ? p.language : s.language;
   const text = String(p.text || `Hi, I'm ${bot?.name ?? 'your Bot'}. This is how I'll sound when we talk.`).slice(0, 400);
@@ -436,6 +448,9 @@ voiceApi.post('/preview', async (c) => {
 });
 
 voiceApi.post('/stt', async (c) => {
+  if (env.xaiChatMode) {
+    return c.json({ error: 'Dictation is unavailable on this deployment: transcription needs an xAI (Grok) key, and the default model provider is not xAI.' }, 503);
+  }
   const form = await c.req.formData().catch(() => null);
   const file = form?.get('file');
   if (!file || typeof file === 'string') return c.json({ error: 'file required' }, 400);

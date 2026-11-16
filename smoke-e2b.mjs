@@ -1,0 +1,27 @@
+process.env.DB_PATH = '/tmp/e2b-adp-test/data/test.db';
+process.env.XAI_API_KEY = 'placeholder';
+process.env.SESSION_SECRET = 'smoke';
+process.env.E2B_TEMPLATE = 'base';
+const { orgo } = await import('/Users/nosrcadmin/Documents/Qoder/2026-11-16/cfb3337b/grokbot-hardening/server/dist/orgo.js');
+console.log('workspaces:', JSON.stringify(await orgo.workspaces()));
+const t0 = Date.now();
+const c = await orgo.createComputer('smoke-box', 'smoke-1');
+console.log('computer:', c.id, c.status, `(${Math.round((Date.now()-t0)/1000)}s)`);
+const b = await orgo.bash(c.id, undefined, 'uname -a && whoami && echo $DISPLAY && (command -v chromium || command -v chromium-browser || echo no-browser)');
+console.log('bash exit', b.exit_code, 'out:', b.output.trim().slice(0, 200));
+const scr = await orgo.screenshot(c.id, 'default');
+console.log('screenshot:', scr.mime_type, scr.width + 'x' + scr.height, 'b64len', scr.image.length);
+const wsMod = await import('/Users/nosrcadmin/Documents/Qoder/2026-11-16/cfb3337b/grokbot-hardening/node_modules/ws/index.js'); const ws = wsMod.default ?? wsMod;
+const vp = await orgo.vncPassword(c.id, 'default');
+console.log('vnc wsUrl:', vp.wsUrl, 'headers:', JSON.stringify(vp.wsHeaders));
+const vncBanner = await new Promise((res, rej) => {
+  const WS = ws.WebSocket ?? ws.default ?? ws; const s = new WS(vp.wsUrl, { protocols: ['binary'], headers: vp.wsHeaders });
+  const to = setTimeout(() => { s.close(); rej(new Error('vnc ws timeout')); }, 8000);
+  s.on('message', (d) => { clearTimeout(to); s.close(); res(d.toString('latin1').slice(0, 12)); });
+  s.on('error', (e) => { clearTimeout(to); rej(e); });
+});
+console.log('vnc banner via client-proxy:', JSON.stringify(vncBanner));
+await orgo.suspend(c.id);
+console.log('after suspend status:', (await orgo.getComputer(c.id)).status);
+console.log('SMOKE_PASS');
+process.exit(0);

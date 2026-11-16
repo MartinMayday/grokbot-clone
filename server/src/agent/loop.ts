@@ -254,6 +254,15 @@ async function finishPending(ctx: ToolCtx, st: PendingState, _reason: string) {
 
 // ---------- model call with streaming into a message row ----------
 
+/** Providers that only speak Chat Completions (e.g. GLM) have no server-side
+ *  web/X search. The tools are dropped by the bridge; this seam-only system
+ *  note tells the model so it can tell the user instead of pretending. */
+const CHAT_MODE_CAPABILITY_NOTE =
+  '\n\n[Provider capabilities] This model provider does not support built-in web search or X search. If the user asks you to search the web or X, say plainly that web search is unavailable on this provider and offer what you can do instead (for example browsing a site with your computer tools).';
+
+/** Remember which (bot, model, generation) already showed a routing-fallback notice. */
+const fallbackNoted = new Map<string, number>();
+
 async function callModel(ctx: ToolCtx, tools: any[], signal: AbortSignal): Promise<{ output: any[] }> {
   const { botId, userId } = ctx;
   const bot = getBotRow(botId);
@@ -263,7 +272,15 @@ async function callModel(ctx: ToolCtx, tools: any[], signal: AbortSignal): Promi
   const input = [{ role: 'system', content: await systemPrompt(userId, botId) }, ...pruneImages(repairHistory(history))];
 
   // Per-bot model routing: plain name = default provider, "prv_x/name" = custom provider.
-  const { client: modelClient, model: modelName, chatMode } = resolveModel(bot.model || currentModel(), userId);
+  const { client: modelClient, model: modelName, chatMode, fallbackNotice } = resolveModel(bot.model || currentModel(), userId);
+  if (fallbackNotice) {
+    const key = `${botId}:${bot.model}`;
+    if (fallbackNoted.get(key) !== bot.generation) {
+      fallbackNoted.set(key, bot.generation); // one notice per conversation generation
+      appendRow(botId, 'notice', { type: 'notice', text: fallbackNotice, tone: 'info' });
+    }
+  }
+  if (chatMode && input[0]) input[0] = { role: 'system', content: String(input[0].content) + CHAT_MODE_CAPABILITY_NOTE };
 
   let stream: any;
   if (chatMode) {
@@ -286,6 +303,7 @@ async function callModel(ctx: ToolCtx, tools: any[], signal: AbortSignal): Promi
         if (own.length) chatBody.tools = own;
         else delete chatBody.tools;
         stream = chatStreamToResponses((await modelClient.chat.completions.create(chatBody, { signal })) as any);
+        appendRow(botId, 'notice', { type: 'notice', text: 'The model provider rejected the connected-app tools; continuing without them.', tone: 'info' });
       } else throw e;
     }
   } else {
@@ -308,6 +326,7 @@ async function callModel(ctx: ToolCtx, tools: any[], signal: AbortSignal): Promi
         console.warn('[agent] 400 with composio tools, retrying without:', e?.message);
         body.tools = [...functionSchemas(), { type: 'web_search' }, { type: 'x_search' }];
         stream = await modelClient.responses.create(body, { signal });
+        appendRow(botId, 'notice', { type: 'notice', text: 'The model provider rejected the connected-app tools; continuing without them.', tone: 'info' });
       } else throw e;
     }
   }

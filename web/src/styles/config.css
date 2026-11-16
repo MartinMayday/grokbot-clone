@@ -214,3 +214,8 @@
 
 /* knob contrasts with the "on" track (matters for black bots in dark mode) */
 .toggle.is-on .toggle__knob { background: var(--bot-on-action, #FFFFFF); }
+
+/* Model-provider form: wrapped row + differently-growing inputs */
+.cfg-row--wrap { flex-wrap: wrap; min-height: 0; }
+.cfg-input--name { flex: 1 1 140px; }
+.cfg-input--url { flex: 2 1 260px; }

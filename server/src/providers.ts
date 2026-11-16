@@ -97,17 +97,23 @@ export function providerById(userId: string, id: string): any | null {
 
 const clientCache = new Map<string, OpenAI>();
 
-/** Resolve a bot's model string to the client/model that serves it. */
-export function resolveModel(modelStr: string | null | undefined, userId?: string): { client: OpenAI; model: string; baseURL: string; chatMode: boolean } {
+/** Resolve a bot's model string to the client/model that serves it.
+ *  `fallbackNotice` is set when a custom provider had to be bypassed, so the
+ *  caller can surface it to the user instead of routing silently. */
+export function resolveModel(modelStr: string | null | undefined, userId?: string): { client: OpenAI; model: string; baseURL: string; chatMode: boolean; fallbackNotice?: string } {
   let baseURL = env.xaiBaseUrl;
   let apiKey = env.xaiKey;
   let model = (modelStr || env.xaiModel).trim();
+  let fallbackNotice: string | undefined;
   if (model.startsWith('prv_') && model.includes('/')) {
     const [pid, ...rest] = model.split('/');
     model = rest.join('/') || env.xaiModel;
     const p = userId ? providerById(userId, pid) : null;
     if (p) { baseURL = p.base_url; apiKey = p.api_key; }
-    else model = env.xaiModel; // provider deleted: fall back to the default
+    else {
+      model = env.xaiModel; // provider deleted: fall back to the default (with a notice)
+      fallbackNotice = `Model provider "${pid}" no longer exists — using the default provider (${env.xaiModel}) instead.`;
+    }
   }
   const chatMode = !baseURL.includes('api.x.ai');
   const key = `${baseURL}\u0000${apiKey}`;
@@ -116,7 +122,7 @@ export function resolveModel(modelStr: string | null | undefined, userId?: strin
     client = new OpenAI({ apiKey, baseURL, timeout: 360_000 });
     clientCache.set(key, client);
   }
-  return { client, model, baseURL, chatMode };
+  return { client, model, baseURL, chatMode, fallbackNotice };
 }
 
 /** Short label for the UI ("glm-5.3", not "prv_ab12cd34/glm-5.3"). */

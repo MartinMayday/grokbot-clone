@@ -108,12 +108,14 @@ export function chatOnceText(xai: any, model: string, system: string, user: stri
 export async function* chatStreamToResponses(stream: AsyncIterable<any>): AsyncGenerator<any> {
   let text = '';
   let started = false;
+  let truncated = false;
   const toolAcc = new Map<number, { id: string; name: string; args: string }>();
   let usage: any = null;
   for await (const chunk of stream) {
     if (chunk?.usage) usage = chunk.usage;
     const choice = chunk?.choices?.[0];
     if (!choice) continue;
+    if (choice.finish_reason === 'length') truncated = true;
     const d = choice.delta ?? {};
     if (d.content) {
       if (!started) {
@@ -124,12 +126,18 @@ export async function* chatStreamToResponses(stream: AsyncIterable<any>): AsyncG
       yield { type: 'response.output_text.delta', delta: d.content };
     }
     for (const tc of d.tool_calls ?? []) {
-      const cur = toolAcc.get(tc.index) ?? { id: '', name: '', args: '' };
+      const idx = tc.index ?? 0; // some providers omit index on single tool calls
+      const cur = toolAcc.get(idx) ?? { id: '', name: '', args: '' };
       if (tc.id) cur.id = tc.id;
       if (tc.function?.name) cur.name += tc.function.name;
       if (tc.function?.arguments) cur.args += tc.function.arguments;
-      toolAcc.set(tc.index, cur);
+      toolAcc.set(idx, cur);
     }
+  }
+  if (truncated && started && !text.endsWith('…')) {
+    const marker = ' …[response truncated by the provider length limit]';
+    yield { type: 'response.output_text.delta', delta: marker };
+    text += marker;
   }
   const output: any[] = [];
   if (text) {

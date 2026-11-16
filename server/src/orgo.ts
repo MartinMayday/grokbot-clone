@@ -271,7 +271,9 @@ export const orgo = {
     const { sbx, rec: r } = await liveSandbox(id);
     const extras = Object.keys(r.screens).filter((s) => s !== 'default');
     if (extras.length >= 3) throw new OrgoError(400, 'limit_reached', 'This computer already has the maximum of 4 screens');
-    const n = extras.length + 1;
+    // Number above the highest existing index, so a deleted middle screen never
+    // makes the next create collide with a still-live screen's display/ports.
+    const n = 1 + extras.reduce((mx, s) => Math.max(mx, Number(s.replace('screen-', '')) || 0), 0);
     const sid = `screen-${n}`;
     const s: ScreenRec = { display: `:${n}`, vncPort: 5900 + n, wsPort: 6080 + n };
     await runScript(sbx, startDisplayCmd(s.display, s.vncPort, s.wsPort, r.vncPassword), { timeoutMs: 30_000 });

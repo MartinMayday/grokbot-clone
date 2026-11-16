@@ -132,16 +132,16 @@ function ModelsSection() {
             )}
           </div>
         ))}
-        {err && <div className="cfg-field__hint" style={{ color: 'var(--color-danger, #e5484d)' }}>{err}</div>}
+        {err && <div className="cfg-error cfg-error--small">{err}</div>}
       </section>
       <section className="cfg-section">
         <div className="cfg-section__label">Add custom model provider</div>
-        <div className="cfg-row" style={{ flexWrap: 'wrap' }}>
-          <input className="text-input" style={{ flex: '1 1 140px' }} value={name} onChange={(e) => setName(e.target.value)} placeholder="Name (e.g. OpenRouter)" aria-label="Provider name" />
-          <input className="text-input" style={{ flex: '2 1 260px' }} value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="Base URL (https://…/v1)" aria-label="Provider base URL" />
+        <div className="cfg-row cfg-row--wrap">
+          <input className="text-input cfg-input--name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Name (e.g. OpenRouter)" aria-label="Provider name" />
+          <input className="text-input cfg-input--url" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="Base URL (https://…/v1)" aria-label="Provider base URL" />
         </div>
         <div className="cfg-row">
-          <input className="text-input" type="password" style={{ flex: '2 1 260px' }} value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder="API key (optional for local endpoints)" aria-label="Provider API key" />
+          <input className="text-input cfg-input--url" type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder="API key (optional for local endpoints)" aria-label="Provider API key" />
           <button type="button" className="cfg-btn" disabled={busy} onClick={add}>{busy ? 'Adding…' : 'Add provider'}</button>
         </div>
         <div className="cfg-field__hint">Models are discovered from the provider&apos;s /models endpoint. Keys are stored on the server only.</div>
@@ -185,7 +185,7 @@ function GeneralSection() {
 
 // ---------------------------------------------------------------------------
 
-const screenLabel = (id: string) => (id === 'default' ? 'Main screen' : `Screen ${Number(id.replace('screen-', '')) - 98 || id}`);
+const screenLabel = (id: string) => (id === 'default' ? 'Main screen' : `Screen ${Number(id.replace('screen-', '')) || id}`);
 
 function ComputerSection() {
   const computer = useStore((s) => s.computer);

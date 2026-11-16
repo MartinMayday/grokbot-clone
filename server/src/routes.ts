@@ -42,7 +42,14 @@ function findOrCreateUser(email: string, name?: string, preferId?: string) {
   const existing = db.prepare('SELECT * FROM users WHERE lower(email)=lower(?)').get(email) as any;
   if (existing) return { id: existing.id as string, isNew: false };
   const id = preferId ?? newId('usr');
-  db.prepare('INSERT INTO users(id,email,name,created_at) VALUES (?,?,?,?)').run(id, email, name ?? email.split('@')[0], now());
+  try {
+    db.prepare('INSERT INTO users(id,email,name,created_at) VALUES (?,?,?,?)').run(id, email, name ?? email.split('@')[0], now());
+  } catch {
+    // Lost a race on the unique email (e.g. two first requests with DEV_LOGIN): reuse the winner.
+    const again = db.prepare('SELECT id FROM users WHERE lower(email)=lower(?)').get(email) as any;
+    if (!again) throw new Error('could not create user');
+    return { id: again.id as string, isNew: false };
+  }
   createBot(id, { name: 'Quinn', label: 'Chief of Staff', description: 'Your main point of contact. Checks in proactively and coordinates work with your other Bots.', avatarShape: 'blob', avatarColor: 'black', isPrimary: true });
   return { id, isNew: true };
 }
@@ -347,7 +354,7 @@ api.get('/apps', async (c) => {
   if (category) items = items.filter((t) => t.categories.some((x) => x.toLowerCase() === category.toLowerCase()));
   const categories = [...new Set(all.flatMap((t) => t.categories))].sort();
   const connectedApps = all.filter((t) => connected.has(t.slug)).map((t) => ({ ...t, connected: true }));
-  return c.json({ apps: items.slice(0, Number(c.req.query('limit') ?? 120)), connected: [...connected], connectedApps, categories, total: items.length });
+  return c.json({ configured: !!env.composioKey, apps: items.slice(0, Number(c.req.query('limit') ?? 120)), connected: [...connected], connectedApps, categories, total: items.length });
 });
 
 api.post('/apps/:slug/connect', async (c) => {
@@ -358,8 +365,12 @@ api.post('/apps/:slug/connect', async (c) => {
   cb.searchParams.set('slug', slug);
   if (botId) cb.searchParams.set('bot', botId);
   if (seq) cb.searchParams.set('seq', String(seq));
-  const r = await startConnect(user.id, slug, cb.toString());
-  return c.json(r);
+  try {
+    const r = await startConnect(user.id, slug, cb.toString());
+    return c.json(r);
+  } catch (e: any) {
+    return c.json({ error: `Could not start the app connection flow: ${e?.message ?? e}` }, 503);
+  }
 });
 
 api.get('/apps/callback', async (c) => {

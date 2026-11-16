@@ -21,9 +21,11 @@ export function Composer({ bot, running }: { bot: Bot; running: boolean }) {
   const setModal = useStore((s) => s.setModal);
 
   // Model picker: fetch the catalog when the menu opens (server caches 5 min).
+  const [modelsFailed, setModelsFailed] = useState(false);
   const openModelMenu = () => {
     setModelMenu((v) => !v);
-    api.models().then(setModels).catch(() => setModels(null));
+    setModelsFailed(false);
+    api.models().then(setModels).catch(() => { setModels(null); setModelsFailed(true); });
   };
   const modelLabel = bot.model?.split('/').pop() ?? models?.current ?? 'model';
   const pickModel = (p: ModelProviderView, m: string) => {
@@ -142,7 +144,7 @@ export function Composer({ bot, running }: { bot: Bot; running: boolean }) {
                 align="right"
                 placement="above"
                 onClose={() => setModelMenu(false)}
-                items={modelItems.length ? modelItems : [{ label: 'Loading models…', onSelect: () => {} }]}
+                items={modelItems.length ? modelItems : [{ label: modelsFailed ? 'Models unavailable — try again later' : 'Loading models…', onSelect: () => {} }]}
               />
             )}
           </span>

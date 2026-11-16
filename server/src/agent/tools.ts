@@ -1,4 +1,5 @@
 import { db, now } from '../db.js';
+import { env } from '../env.js';
 import { newId } from '../lib/ids.js';
 import { hub } from '../lib/hub.js';
 import { orgo } from '../orgo.js';
@@ -457,6 +458,9 @@ export const TOOLS: ToolDef[] = [
     activity: 'connecting_service',
     label: 'Using a connected app',
     impl: async (a, ctx) => {
+      if (!env.composioKey) {
+        return { output: 'App connections are not configured on this deployment (no Composio API key). Tell the user connected apps are unavailable here and continue without them.', endTurn: true };
+      }
       const info = await toolkitInfo(String(a.toolkit).toLowerCase());
       if (!info) return { output: `Unknown toolkit "${a.toolkit}". Use COMPOSIO_SEARCH_TOOLS to find the right toolkit slug.` };
       appendRow(ctx.botId, 'card', { type: 'card', card: 'connect', toolkit: info.slug, toolkitName: info.name, logo: info.logo, reason: a.reason, status: 'pending' });
