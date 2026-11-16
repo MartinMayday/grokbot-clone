@@ -145,6 +145,18 @@ const BOOT_STEPS = [
   'printf "#!/bin/sh\\nsetsid nohup \\"\\$@\\" >/dev/null 2>&1 </dev/null &\\n" > /usr/local/bin/detach-start && chmod +x /usr/local/bin/detach-start && echo LAUNCHER_OK',
 ];
 
+/**
+ * Run a shell script via a file inside the sandbox. envd executes commands as
+ * `sh -c <entire script>`, so any `pkill -f <pattern>` in the script matches
+ * the wrapper shell's own cmdline and SIGTERMs the whole command. Going through
+ * a script file keeps the process argv pattern-free (and sidesteps quoting).
+ */
+async function runScript(sbx: Sandbox, script: string, opts: { timeoutMs?: number; envs?: Record<string, string> } = {}) {
+  const name = `/tmp/grokbot-cmd-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}.sh`;
+  const b64 = Buffer.from(script, 'utf8').toString('base64');
+  return run(sbx, `printf %s ${shq(b64)} | base64 -d > ${name} && sh ${name}; rc=$?; rm -f ${name}; exit $rc`, opts);
+}
+
 function startDisplayCmd(display: string, vncPort: number, wsPort: number, password: string) {
   return [
     `pkill -f "Xvfb ${display}" 2>/dev/null || true`,
@@ -154,7 +166,7 @@ function startDisplayCmd(display: string, vncPort: number, wsPort: number, passw
     `detach-start Xvfb ${display} -screen 0 ${RES_W}x${RES_H}x24 -nolisten tcp`,
     'sleep 0.6',
     `if command -v openbox >/dev/null 2>&1; then DISPLAY=${display} detach-start openbox; sleep 0.4; fi`,
-    `nohup x11vnc -display ${display} -rfbport ${vncPort} -passwd ${shq(password)} -forever -shared -noxdamage -bg >/dev/null 2>&1 </dev/null`,
+    `detach-start x11vnc -display ${display} -rfbport ${vncPort} -passwd ${shq(password)} -forever -shared -noxdamage`,
     'sleep 0.4',
     `detach-start websockify ${wsPort} localhost:${vncPort}`,
     'sleep 0.5',
@@ -183,7 +195,7 @@ async function provisionSandbox(rec: ComputerRec): Promise<void> {
     }
     if (!bootOut.includes('BROWSER_OK')) console.warn('[orgo/e2b] no browser installed in sandbox; browser tools will degrade');
     for (const [screenId, s] of Object.entries(rec.screens)) {
-      await run(sbx, startDisplayCmd(s.display, s.vncPort, s.wsPort, rec.vncPassword), { timeoutMs: 45_000 });
+      await runScript(sbx, startDisplayCmd(s.display, s.vncPort, s.wsPort, rec.vncPassword), { timeoutMs: 45_000 });
       if (screenId !== 'default') void screenId;
     }
   } catch (e) {
@@ -262,7 +274,7 @@ export const orgo = {
     const n = extras.length + 1;
     const sid = `screen-${n}`;
     const s: ScreenRec = { display: `:${n}`, vncPort: 5900 + n, wsPort: 6080 + n };
-    await run(sbx, startDisplayCmd(s.display, s.vncPort, s.wsPort, r.vncPassword), { timeoutMs: 30_000 });
+    await runScript(sbx, startDisplayCmd(s.display, s.vncPort, s.wsPort, r.vncPassword), { timeoutMs: 30_000 });
     r.screens[sid] = s;
     saveState();
     return screenObj(sid, s);
@@ -278,7 +290,7 @@ export const orgo = {
     const s = r.screens[screen];
     if (!s) return;
     if (screen === 'default') throw new OrgoError(400, 'bad_request', 'The default screen cannot be deleted');
-    await run(sbx, `pkill -f "Xvfb ${s.display}" 2>/dev/null; pkill -f "x11vnc.*rfbport ${s.vncPort}" 2>/dev/null; pkill -f "websockify.*${s.wsPort}" 2>/dev/null; true`, { timeoutMs: 15_000 });
+    await runScript(sbx, `pkill -f "Xvfb ${s.display}" 2>/dev/null; pkill -f "x11vnc.*rfbport ${s.vncPort}" 2>/dev/null; pkill -f "websockify.*${s.wsPort}" 2>/dev/null; true`, { timeoutMs: 15_000 });
     delete r.screens[screen];
     saveState();
   },
@@ -325,7 +337,9 @@ export const orgo = {
 
   bash: async (id: string, screen: string | undefined, command: string, timeout = 120) => {
     const { sbx, rec: r } = await liveSandbox(id);
-    const res = await run(sbx, command, {
+    // Via runScript: bot commands often contain `pkill -f <pattern>` (screen
+    // eviction, browser profile resets) that would match envd's wrapper shell.
+    const res = await runScript(sbx, command, {
       timeoutMs: Math.min(Math.max(timeout, 5), 280) * 1000,
       envs: { DISPLAY: displayFor(r, screen) },
     });
