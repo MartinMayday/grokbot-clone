@@ -132,15 +132,14 @@ const BOOT_APT = [
   'export DEBIAN_FRONTEND=noninteractive',
   'if ! command -v Xvfb >/dev/null 2>&1 || ! command -v xdotool >/dev/null 2>&1; then',
   '  apt-get update -qq >/dev/null 2>&1 || true',
-  '  apt-get install -y -qq xvfb x11vnc xdotool imagemagick websockify openbox chromium >/dev/null 2>&1 || true',
-  '  # dpkg can die partway (triggers, races); repair and retry once, then again without chromium.',
+  '  # One big apt-get install trips dpkg in this sandbox; sequential groups are reliable.',
+  '  for pkgs in "xvfb xdotool x11vnc" "imagemagick" "websockify" "openbox" "chromium"; do',
+  '    apt-get install -y -qq $pkgs >/dev/null 2>&1 || true',
+  '  done',
   '  dpkg --configure -a >/dev/null 2>&1 || true',
-  '  apt-get install -f -y -qq >/dev/null 2>&1 || true',
-  '  apt-get install -y -qq xvfb x11vnc xdotool imagemagick websockify openbox chromium >/dev/null 2>&1 \\',
-  '    || apt-get install -y -qq xvfb x11vnc xdotool imagemagick websockify openbox >/dev/null 2>&1 \\',
-  '    || true',
   'fi',
   'command -v Xvfb >/dev/null && echo X_OK || echo X_MISSING',
+  'command -v chromium >/dev/null 2>&1 || command -v chromium-browser >/dev/null 2>&1 && echo BROWSER_OK || echo BROWSER_MISSING',
 ].join('\n');
 
 function startDisplayCmd(display: string, vncPort: number, wsPort: number, password: string) {
