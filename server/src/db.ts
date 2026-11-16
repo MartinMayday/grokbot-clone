@@ -146,5 +146,16 @@ function addColumn(table: string, col: string, ddl: string) {
 addColumn('bots', 'voice', "TEXT NOT NULL DEFAULT 'luna'");
 addColumn('bots', 'voice_speed', 'REAL NOT NULL DEFAULT 1');
 addColumn('bots', 'voice_language', "TEXT NOT NULL DEFAULT 'auto'");
+addColumn('bots', 'model', 'TEXT');
+db.exec(`CREATE TABLE IF NOT EXISTS model_providers (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  base_url TEXT NOT NULL,
+  api_key TEXT NOT NULL DEFAULT '',
+  models_cache TEXT NOT NULL DEFAULT '[]',
+  last_error TEXT,
+  created_at INTEGER NOT NULL
+)`);
 
 export const now = () => Date.now();

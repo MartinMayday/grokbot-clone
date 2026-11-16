@@ -38,4 +38,7 @@ CREATE TABLE IF NOT EXISTS compactions (
 );
 `);
 
+/** Simple key/value store (runtime model picker and friends). */
+db.exec(`CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);`);
+
 export const configSchemaReady = true;

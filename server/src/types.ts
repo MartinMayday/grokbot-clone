@@ -10,6 +10,16 @@ export type AvatarColor =
 
 export interface User { id: string; email: string; name: string; avatarUrl: string | null }
 
+export interface ModelProviderView {
+  id: string;
+  name: string;
+  baseUrl: string;
+  models: string[];
+  ok: boolean;
+  error?: string;
+  isDefault?: boolean;
+}
+
 export interface Bot {
   id: string;
   name: string;
@@ -24,6 +34,8 @@ export interface Bot {
   kind?: 'agent' | 'room';
   pinned: boolean;
   effort: 'low' | 'medium' | 'high' | 'xhigh';
+  /** Per-bot model override: plain name (default provider) or "prv_x/name". */
+  model?: string | null;
   /** Voice chat settings: xAI voice id, speed multiplier (0.7–1.5), BCP-47 language or 'auto'. */
   voice: string;
   voiceSpeed: number;

@@ -1,4 +1,6 @@
-import type { Bot, ComputerState, LiveState, Routine, Row, Toolkit, User } from '@shared/types';
+import type { Bot, ComputerState, LiveState, ModelProviderView, Routine, Row, Toolkit, User } from '@shared/types';
+
+export interface ModelsResponse { models: string[]; current: string; source: 'live' | 'fallback'; providers: ModelProviderView[] }
 
 export class ApiError extends Error {
   constructor(public status: number, message: string) { super(message); }
@@ -26,6 +28,12 @@ export interface RoomMember { id: string; name: string; label: string; avatarSha
 
 export const api = {
   me: () => req<{ user: User | null; devLogin: boolean }>('GET', '/auth/me'),
+  models: () => req<ModelsResponse>('GET', '/models'),
+  setModel: (model: string) => req<{ ok: true; current: string }>('POST', '/models', { model }),
+  providers: () => req<{ providers: ModelProviderView[] }>('GET', '/providers'),
+  addProvider: (p: { name: string; baseUrl: string; apiKey?: string }) => req<{ providers: ModelProviderView[] }>('POST', '/providers', p),
+  deleteProvider: (id: string) => req<{ ok: true }>('DELETE', `/providers/${id}`),
+  updateBot: (id: string, patch: Partial<Bot>) => req<{ bot: Bot }>('PATCH', `/bots/${id}`, patch),
   devLogin: (email: string, name?: string) => req<{ ok: true }>('POST', '/auth/dev', { email, name }),
   logout: () => req<{ ok: true }>('POST', '/auth/logout'),
 

@@ -1,9 +1,9 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import type { Bot } from '@shared/types';
-import { api } from '../lib/api';
+import type { Bot, ModelProviderView } from '@shared/types';
+import { api, type ModelsResponse } from '../lib/api';
 import { displayName, useStore } from '../store';
 import { Icon } from './Icon';
-import { Menu } from './Menu';
+import { Menu, type MenuItem } from './Menu';
 import { endCall, isCallActive, startCall, useVoice } from '../voice/call';
 import { useDictation } from '../voice/dictation';
 
@@ -15,8 +15,23 @@ export function Composer({ bot, running }: { bot: Bot; running: boolean }) {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [menu, setMenu] = useState(false);
+  const [modelMenu, setModelMenu] = useState(false);
+  const [models, setModels] = useState<ModelsResponse | null>(null);
   const ref = useRef<HTMLTextAreaElement>(null);
   const setModal = useStore((s) => s.setModal);
+
+  // Model picker: fetch the catalog when the menu opens (server caches 5 min).
+  const openModelMenu = () => {
+    setModelMenu((v) => !v);
+    api.models().then(setModels).catch(() => setModels(null));
+  };
+  const modelLabel = bot.model?.split('/').pop() ?? models?.current ?? 'model';
+  const pickModel = (p: ModelProviderView, m: string) => {
+    api.updateBot(bot.id, { model: p.isDefault ? m : `${p.id}/${m}` }).catch((e) => setError(e.message));
+  };
+  const modelItems: MenuItem[] = (models?.providers ?? []).flatMap((p) =>
+    p.models.map((m) => ({ label: m, hint: p.name + (p.ok ? '' : ' · offline'), onSelect: () => pickModel(p, m) })),
+  );
 
   // Per-bot drafts.
   useEffect(() => { setText(drafts.get(bot.id) ?? ''); setError(null); ref.current?.focus(); }, [bot.id]);
@@ -111,6 +126,26 @@ export function Composer({ bot, running }: { bot: Bot; running: boolean }) {
           />
         </div>
         <div className="composer__right">
+          <span className="composer__model-anchor">
+            <button
+              type="button"
+              className="composer__model"
+              onClick={openModelMenu}
+              title={bot.model ? `Bot model: ${modelLabel} — click to change` : `Default model: ${modelLabel} — click to change`}
+              aria-haspopup="menu"
+              aria-expanded={modelMenu}
+            >
+              {modelLabel}
+            </button>
+            {modelMenu && (
+              <Menu
+                align="right"
+                placement="above"
+                onClose={() => setModelMenu(false)}
+                items={modelItems.length ? modelItems : [{ label: 'Loading models…', onSelect: () => {} }]}
+              />
+            )}
+          </span>
           <button
             type="button"
             className={`composer__btn${dictation.state === 'recording' ? ' is-recording' : dictation.state === 'transcribing' ? ' is-transcribing' : ''}`}

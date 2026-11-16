@@ -11,6 +11,8 @@ import { repairHistory } from './history.js';
 import { maybeCompact, noteUsage } from './memory.js';
 import { activityFor, functionSchemas, humanizeSlug, policyFor, runComposioTool, toolMap, type ToolCtx, type ToolResult } from './tools.js';
 import { chatStreamToResponses, toChatMessages, toChatTools } from './chatbridge.js';
+import { resolveModel } from '../providers.js';
+import { currentModel } from '../lib/model.js';
 
 const xai = new OpenAI({ apiKey: env.xaiKey, baseURL: env.xaiBaseUrl, timeout: 360_000 });
 
@@ -260,11 +262,14 @@ async function callModel(ctx: ToolCtx, tools: any[], signal: AbortSignal): Promi
   // The model is only called when no approval is pending, so every orphaned call can be repaired.
   const input = [{ role: 'system', content: await systemPrompt(userId, botId) }, ...pruneImages(repairHistory(history))];
 
+  // Per-bot model routing: plain name = default provider, "prv_x/name" = custom provider.
+  const { client: modelClient, model: modelName, chatMode } = resolveModel(bot.model || currentModel(), userId);
+
   let stream: any;
-  if (env.xaiChatMode) {
+  if (chatMode) {
     // Chat Completions provider (e.g. GLM on Z.AI): bridge history/stream shapes.
     const chatBody: any = {
-      model: env.xaiModel,
+      model: modelName,
       messages: toChatMessages(input),
       stream: true,
       stream_options: { include_usage: true },
@@ -272,7 +277,7 @@ async function callModel(ctx: ToolCtx, tools: any[], signal: AbortSignal): Promi
     const chatTools = toChatTools(tools);
     if (chatTools.length) chatBody.tools = chatTools;
     try {
-      stream = chatStreamToResponses((await xai.chat.completions.create(chatBody, { signal })) as any);
+      stream = chatStreamToResponses((await modelClient.chat.completions.create(chatBody, { signal })) as any);
     } catch (e: any) {
       // If a Composio tool schema is rejected, retry with only our own tools.
       if (e?.status === 400 && tools.length > functionSchemas().length + 2) {
@@ -280,12 +285,12 @@ async function callModel(ctx: ToolCtx, tools: any[], signal: AbortSignal): Promi
         const own = toChatTools(functionSchemas());
         if (own.length) chatBody.tools = own;
         else delete chatBody.tools;
-        stream = chatStreamToResponses((await xai.chat.completions.create(chatBody, { signal })) as any);
+        stream = chatStreamToResponses((await modelClient.chat.completions.create(chatBody, { signal })) as any);
       } else throw e;
     }
   } else {
     const body: any = {
-      model: env.xaiModel,
+      model: modelName,
       input,
       tools,
       reasoning: { effort: bot.effort ?? 'medium' },
@@ -296,13 +301,13 @@ async function callModel(ctx: ToolCtx, tools: any[], signal: AbortSignal): Promi
       stream: true,
     };
     try {
-      stream = await xai.responses.create(body, { signal });
+      stream = await modelClient.responses.create(body, { signal });
     } catch (e: any) {
       // If a Composio tool schema is rejected, retry with only our own tools.
       if (e?.status === 400 && tools.length > functionSchemas().length + 2) {
         console.warn('[agent] 400 with composio tools, retrying without:', e?.message);
         body.tools = [...functionSchemas(), { type: 'web_search' }, { type: 'x_search' }];
-        stream = await xai.responses.create(body, { signal });
+        stream = await modelClient.responses.create(body, { signal });
       } else throw e;
     }
   }

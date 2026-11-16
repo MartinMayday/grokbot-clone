@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { Toolkit } from '@shared/types';
+import { api } from '../../lib/api';
 import { BotAvatarFor } from '../../avatar/BotAvatar';
 import { configApi, type ComputerDetails } from '../../lib/configApi';
 import { relativeShort } from '../../lib/time';
@@ -15,6 +16,7 @@ import { ConfirmButton } from './ui';
 const SECTIONS: { id: AppSection; label: string }[] = [
   { id: 'general', label: 'General' },
   { id: 'computer', label: 'Computer' },
+  { id: 'models', label: 'Model providers' },
   { id: 'permissions', label: 'Permissions' },
   { id: 'apps', label: 'Connected apps' },
   { id: 'account', label: 'Account' },
@@ -47,6 +49,7 @@ export function AppSettings() {
         <div className="app-settings__page">
           {section === 'general' && <GeneralSection />}
           {section === 'computer' && <ComputerSection />}
+          {section === 'models' && <ModelsSection />}
           {section === 'permissions' && <PermissionsSection />}
           {section === 'apps' && <AppsSection />}
           {section === 'account' && <AccountSection />}
@@ -63,6 +66,87 @@ function PageHead({ title, sub }: { title: string; sub?: string }) {
       <h1>{title}</h1>
       {sub && <p>{sub}</p>}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Model providers: the default provider comes from the environment; any
+// OpenAI-compatible endpoint added here becomes pickable per Bot.
+// ---------------------------------------------------------------------------
+
+function ModelsSection() {
+  const [data, setData] = useState<{ current: string; providers: { id: string; name: string; baseUrl: string; models: string[]; ok: boolean; error?: string; isDefault?: boolean }[] } | null>(null);
+  const [name, setName] = useState('');
+  const [baseUrl, setBaseUrl] = useState('');
+  const [apiKey, setApiKey] = useState('');
+  const [defaultModel, setDefaultModel] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const load = useCallback(() => {
+    api.models().then((r) => { setData(r); setDefaultModel((d) => d || r.current); }).catch((e) => setErr(e.message));
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  const add = async () => {
+    if (!name.trim() || !baseUrl.trim()) { setErr('Name and base URL are required'); return; }
+    setBusy(true); setErr(null);
+    try {
+      const r = await api.addProvider({ name: name.trim(), baseUrl: baseUrl.trim(), apiKey: apiKey.trim() || undefined });
+      setData((d) => (d ? { ...d, providers: r.providers } : d));
+      setName(''); setBaseUrl(''); setApiKey('');
+    } catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
+  };
+
+  const saveDefault = async () => {
+    setBusy(true); setErr(null);
+    try {
+      const r = await api.setModel(defaultModel.trim());
+      setData((d) => (d ? { ...d, current: r.current } : d));
+    } catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
+  };
+
+  return (
+    <>
+      <PageHead title="Model providers" sub="The default provider comes from the server environment. Add any OpenAI-compatible provider to use it in the model picker." />
+      <section className="cfg-section">
+        <div className="cfg-section__label">Default model</div>
+        <div className="cfg-row">
+          <input className="text-input" value={defaultModel} onChange={(e) => setDefaultModel(e.target.value)} placeholder="e.g. glm-5.3" aria-label="Default model" />
+          <button type="button" className="cfg-btn" disabled={busy || !defaultModel.trim()} onClick={saveDefault}>Save</button>
+        </div>
+        <div className="cfg-field__hint">Used by every Bot without an explicit model choice.</div>
+      </section>
+      <section className="cfg-section">
+        <div className="cfg-section__label">Providers</div>
+        {(data?.providers ?? []).map((p) => (
+          <div className="cfg-row" key={p.id}>
+            <div className="cfg-row__text">
+              <strong>{p.name}{p.isDefault ? ' · default' : ''}</strong>
+              <span className="cfg-field__hint">
+                {p.baseUrl} — {p.ok ? `${p.models.length} models` : `unreachable${p.error ? `: ${p.error}` : ''}`}
+              </span>
+            </div>
+            {!p.isDefault && (
+              <ConfirmButton onConfirm={async () => { await api.deleteProvider(p.id); load(); }}>Delete</ConfirmButton>
+            )}
+          </div>
+        ))}
+        {err && <div className="cfg-field__hint" style={{ color: 'var(--color-danger, #e5484d)' }}>{err}</div>}
+      </section>
+      <section className="cfg-section">
+        <div className="cfg-section__label">Add custom model provider</div>
+        <div className="cfg-row" style={{ flexWrap: 'wrap' }}>
+          <input className="text-input" style={{ flex: '1 1 140px' }} value={name} onChange={(e) => setName(e.target.value)} placeholder="Name (e.g. OpenRouter)" aria-label="Provider name" />
+          <input className="text-input" style={{ flex: '2 1 260px' }} value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="Base URL (https://…/v1)" aria-label="Provider base URL" />
+        </div>
+        <div className="cfg-row">
+          <input className="text-input" type="password" style={{ flex: '2 1 260px' }} value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder="API key (optional for local endpoints)" aria-label="Provider API key" />
+          <button type="button" className="cfg-btn" disabled={busy} onClick={add}>{busy ? 'Adding…' : 'Add provider'}</button>
+        </div>
+        <div className="cfg-field__hint">Models are discovered from the provider&apos;s /models endpoint. Keys are stored on the server only.</div>
+      </section>
+    </>
   );
 }
 

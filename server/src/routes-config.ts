@@ -11,6 +11,8 @@ import { runInBotQueue } from './agent/loop.js';
 import { consolidateBot, historySize, maybeCompact, memoryConfig } from './agent/memory.js';
 import { idleConfig, viewerCount } from './idle.js';
 import { loadHistory } from './store.js';
+import { currentModel, modelCatalog, setModel } from './lib/model.js';
+import { createProvider, deleteProvider, providersView } from './providers.js';
 import type { LibraryFile, Memory, Skill } from './types.js';
 
 /**
@@ -19,7 +21,40 @@ import type { LibraryFile, Memory, Skill } from './types.js';
  */
 export const configApi = new Hono<AuthVars>();
 
-for (const p of ['/bots/*', '/skills/*', '/computer/*']) configApi.use(p, requireUser);
+for (const p of ['/bots/*', '/skills/*', '/computer/*', '/models', '/models/*', '/providers', '/providers/*']) configApi.use(p, requireUser);
+
+// ---------- model picker ----------
+
+configApi.get('/models', async (c) => {
+  const { models, source } = await modelCatalog();
+  return c.json({ models, current: currentModel(), source, providers: await providersView(c.get('user').id) });
+});
+
+configApi.post('/models', async (c) => {
+  const { model } = await c.req.json<{ model?: string }>().catch(() => ({ model: undefined }));
+  const m = String(model ?? '').trim();
+  if (!/^[\w.:-]{1,64}$/.test(m)) return c.json({ error: 'invalid model id' }, 400);
+  setModel(m);
+  return c.json({ ok: true, current: m });
+});
+
+// ---------- custom model providers (Settings → Model providers) ----------
+
+configApi.get('/providers', async (c) => c.json({ providers: await providersView(c.get('user').id) }));
+
+configApi.post('/providers', async (c) => {
+  const body = await c.req.json<{ name?: string; baseUrl?: string; apiKey?: string }>().catch(() => ({}) as { name?: string; baseUrl?: string; apiKey?: string });
+  const { name, baseUrl, apiKey } = body;
+  if (!name?.trim() || !baseUrl?.trim()) return c.json({ error: 'name and baseUrl are required' }, 400);
+  if (!/^https?:\/\//.test(baseUrl.trim())) return c.json({ error: 'baseUrl must start with http(s)://' }, 400);
+  createProvider(c.get('user').id, name, baseUrl, apiKey ?? '');
+  return c.json({ providers: await providersView(c.get('user').id) }, 201);
+});
+
+configApi.delete('/providers/:id', async (c) => {
+  const ok = deleteProvider(c.get('user').id, c.req.param('id'));
+  return c.json(ok ? { ok: true } : { error: 'not found' }, ok ? 200 : 404);
+});
 
 const ownBot = (userId: string, id: string) => {
   const b = getBotRow(id);
