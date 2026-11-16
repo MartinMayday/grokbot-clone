@@ -300,7 +300,6 @@ export const orgo = {
     const res = await run(sbx, 'import -window root -quality 75 jpeg:- 2>/dev/null | base64 -w0', {
       timeoutMs: 20_000,
       envs: { DISPLAY: displayFor(r, screen) },
-      root: false,
     });
     return { image: String(res.stdout).trim(), mime_type: 'image/jpeg', width: RES_W, height: RES_H };
   },
