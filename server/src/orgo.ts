@@ -140,6 +140,9 @@ const BOOT_STEPS = [
   'export DEBIAN_FRONTEND=noninteractive; apt-get install -y -qq openbox >/dev/null 2>&1; echo openbox:$?',
   'export DEBIAN_FRONTEND=noninteractive; { apt-get install -y -qq chromium >/dev/null 2>&1 || apt-get install -y -qq chromium-browser >/dev/null 2>&1; }; echo chromium:$?; dpkg --configure -a >/dev/null 2>&1; true',
   'command -v Xvfb >/dev/null && echo X_OK || echo X_MISSING; { command -v chromium >/dev/null 2>&1 || command -v chromium-browser >/dev/null 2>&1; } && echo BROWSER_OK || echo BROWSER_MISSING',
+  // Detached-process launcher: envd terminates commands whose children keep
+  // the output streams open, so background services must setsid + close fds.
+  'printf "#!/bin/sh\\nsetsid nohup \\"\\$@\\" >/dev/null 2>&1 </dev/null &\\n" > /usr/local/bin/detach-start && chmod +x /usr/local/bin/detach-start && echo LAUNCHER_OK',
 ];
 
 function startDisplayCmd(display: string, vncPort: number, wsPort: number, password: string) {
@@ -148,14 +151,14 @@ function startDisplayCmd(display: string, vncPort: number, wsPort: number, passw
     `pkill -f "x11vnc.*rfbport ${vncPort}" 2>/dev/null || true`,
     `pkill -f "websockify.*${wsPort}" 2>/dev/null || true`,
     'sleep 0.3',
-    `nohup Xvfb ${display} -screen 0 ${RES_W}x${RES_H}x24 -nolisten tcp >/dev/null 2>&1 &`,
+    `detach-start Xvfb ${display} -screen 0 ${RES_W}x${RES_H}x24 -nolisten tcp`,
     'sleep 0.6',
-    'if command -v openbox >/dev/null 2>&1; then DISPLAY=' + display + ' nohup openbox >/dev/null 2>&1 & sleep 0.4; fi',
-    `nohup x11vnc -display ${display} -rfbport ${vncPort} -passwd ${shq(password)} -forever -shared -noxdamage -bg >/dev/null 2>&1`,
+    `if command -v openbox >/dev/null 2>&1; then DISPLAY=${display} detach-start openbox; sleep 0.4; fi`,
+    `nohup x11vnc -display ${display} -rfbport ${vncPort} -passwd ${shq(password)} -forever -shared -noxdamage -bg >/dev/null 2>&1 </dev/null`,
     'sleep 0.4',
-    `nohup websockify ${wsPort} localhost:${vncPort} >/dev/null 2>&1 &`,
+    `detach-start websockify ${wsPort} localhost:${vncPort}`,
     'sleep 0.5',
-    `curl -s -o /dev/null http://127.0.0.1:${wsPort}/ 2>/dev/null; echo started_${display}`,
+    `(command -v curl >/dev/null 2>&1 && curl -s -m 3 -o /dev/null http://127.0.0.1:${wsPort}/) ; echo started_${display}`,
   ].join('\n');
 }
 
